@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Galaxy Coin Flip</title>
+
+<script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+<style>
+body {
+  margin: 0;
+  font-family: Arial, sans-serif;
+  overflow: hidden;
+  background: radial-gradient(circle at bottom, #000814 0%, #000000 100%);
+  color: white;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  position: relative;
+}
+
+.stars {
+  position: absolute;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(white 1px, transparent 1px);
+  background-size: 50px 50px;
+  animation: moveStars 120s linear infinite;
+  opacity: 0.15;
+}
+
+@keyframes moveStars {
+  from { transform: translate(0,0); }
+  to { transform: translate(-600px,-600px); }
+}
+
+canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.container {
+  position: relative;
+  background: rgba(0, 30, 60, 0.9);
+  padding: 40px;
+  border-radius: 20px;
+  width: 500px;
+  text-align: center;
+  box-shadow: 0 0 40px rgba(0,255,200,0.6);
+  z-index: 5;
+}
+
+#lastFlip {
+  margin-bottom: 10px;
+  font-size: 18px;
+  color: #00ffbf;
+}
+
+#coin {
+  margin: 25px auto;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 6px solid gold;
+  box-shadow: 0 0 20px gold, 0 0 40px gold inset;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-weight: bold;
+  font-size: 20px;
+  color: black;
+  perspective: 1000px;
+  background: linear-gradient(to bottom, gold 50%, silver 50%);
+  transition: transform 1.5s ease-in-out;
+  position: relative;
+  cursor: pointer;
+}
+
+button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 12px;
+  border-radius: 8px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+  background: linear-gradient(45deg, #00c896, #00ffbf);
+  color: #002b36;
+  transition: 0.3s;
+}
+
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 15px #00ffbf;
+}
+
+#status,
+#result {
+  margin-top: 10px;
+  min-height: 24px;
+}
+
+.win {
+  color: #00ffae;
+  font-size: 18px;
+  text-shadow: 0 0 10px #00ffae;
+}
+
+.lose {
+  color: #ff4d6d;
+  font-size: 18px;
+}
+
+.flip {
+  animation: spin 1.8s ease-in-out;
+}
+
+@keyframes spin {
+  0% { transform: rotateY(0deg); }
+  100% { transform: rotateY(1080deg); }
+}
+
+footer {
+  margin-top: 20px;
+  font-size: 14px;
+  color: #00ffbf;
+}
+</style>
+</head>
+
+<body>
+<div class="stars"></div>
+<canvas id="snow"></canvas>
+
+<div class="container">
+  <h2>🇺🇸 Galaxy Coin Flip 🇺🇸</h2>
+  <div id="lastFlip">Last Flip: None</div>
+  <p>Bet 0.1 SOL or flip for fun!</p>
+
+  <div id="phantomNotice" style="margin-bottom:10px;color:#ffcc00;"></div>
+  <button id="connectBtn" onclick="connectWallet()">Connect Phantom</button>
+  <button id="browserBtn" style="display:none;" onclick="openInBrowser()">Open in Browser & Connect Phantom</button>
+
+  <div id="coin" onclick="placeBet('heads')"></div>
+
+  <button onclick="placeBet('heads')">Bet Heads (0.1 SOL)</button>
+  <button onclick="placeBet('tails')">Bet Tails (0.1 SOL)</button>
+
+  <div id="status"></div>
+  <div id="result"></div>
+  <button onclick="toggleMusic()">Mute/Unmute Sound</button>
+  <footer>Why we do this</footer>
+</div>
+
+<audio id="flipSound" src="https://www.soundjay.com/misc/sounds/coin-flip-01.mp3"></audio>
+<audio id="winSound" src="https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3"></audio>
+
+<script>
+// Snow
+const canvas = document.getElementById("snow");
+const ctx = canvas.getContext("2d");
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let snowflakes = [];
+for (let i = 0; i < 150; i++) {
+  snowflakes.push({x: Math.random() * canvas.width, y: Math.random() * canvas.height, radius: Math.random() * 3 + 1, speed: Math.random() * 1 + 0.5});
+}
+
+function drawSnow() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "white";
+  ctx.beginPath();
+  for (let flake of snowflakes) {
+    ctx.moveTo(flake.x, flake.y);
+    ctx.arc(flake.x, flake.y, flake.radius, 0, Math.PI * 2);
+  }
+  ctx.fill();
+  for (let flake of snowflakes) {
+    flake.y += flake.speed;
+    if (flake.y > canvas.height) {
+      flake.y = 0;
+      flake.x = Math.random() * canvas.width;
+    }
+  }
+}
+setInterval(drawSnow, 30);
+
+// Sound
+let musicPlaying = true;
+
+function toggleMusic() {
+  const flip = document.getElementById("flipSound");
+  const win = document.getElementById("winSound");
+  musicPlaying = !musicPlaying;
+  flip.muted = !musicPlaying;
+  win.muted = !musicPlaying;
+}
+
+// Phantom
+const recipientAddress = "C7A4MBN2GLZcr5GMz8orfNnyaDeyr5ETftwXiUonhHQo";
+let provider = null;
+
+function getProvider() {
+  if (window.solana && window.solana.isPhantom) return window.solana;
+  return null;
+}
+
+function openInBrowser() {
+  alert("Please open in a browser with Phantom.");
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  if (!getProvider()) {
+    document.getElementById("phantomNotice").innerHTML = "Phantom not detected!";
+    document.getElementById("connectBtn").style.display = "none";
+    document.getElementById("browserBtn").style.display = "inline-block";
+  }
+});
+
+async function connectWallet() {
+  provider = getProvider();
+  if (!provider) {
+    document.getElementById("status").innerText = "Phantom not detected.";
+    return;
+  }
+  try {
+    await provider.connect();
+    const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl("devnet"), "confirmed");
+    const balance = await connection.getBalance(provider.publicKey);
+    document.getElementById("status").innerText = "Connected. Balance: " + (balance / solanaWeb3.LAMPORTS_PER_SOL).toFixed(3) + " SOL (devnet)";
+  } catch (e) {
+    console.log(e);
+    document.getElementById("status").innerText = "Connection failed. Make sure Phantom is unlocked and this is opened in a browser.";
+  }
+}
+
+// Lightning flash
+function lightningFlash() {
+  const flash = document.createElement("div");
+  flash.style.position = "absolute";
+  flash.style.top = "0";
+  flash.style.left = "0";
+  flash.style.width = "100%";
+  flash.style.height = "100%";
+  flash.style.background = "white";
+  flash.style.opacity = "0.2";
+  flash.style.zIndex = "10";
+  document.body.appendChild(flash);
+  setTimeout(() => document.body.removeChild(flash), 100);
+}
+
+// Flip logic
+document.getElementById("coin").onclick = async () => {
+  await flipCoin(null, true);
+};
+
+async function placeBet(choice) {
+  await flipCoin(choice, false);
+}
+
+async function flipCoin(choice, isFunMode) {
+  const coin = document.getElementById("coin");
+  coin.classList.add("flip");
+  lightningFlash();
+  document.getElementById("flipSound").play();
+  setTimeout(async () => {
+    const flip = Math.random() < 0.5 ? "heads" : "tails";
+    coin.classList.remove("flip");
+    coin.style.background = flip === "heads" ? "gold" : "silver";
+    document.getElementById("lastFlip").innerText = "Last Flip: " + flip;
+
+    if (isFunMode) {
+      document.getElementById("result").innerText = "You flipped " + flip;
+      return;
+    }
+
+    // Bet mode
+    if (!provider) {
+      document.getElementById("status").innerText = "Connect wallet first.";
+      return;
+    }
+    const connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl("devnet"), "confirmed");
+    const betAmount = 0.1;
+    const balance = await connection.getBalance(provider.publicKey);
+    if ((balance / solanaWeb3.LAMPORTS_PER_SOL) < betAmount) {
+      document.getElementById("status").innerText = "❌ Insufficient funds.";
+      return;
+    }
+
+    const transaction = new solanaWeb3.Transaction().add(
+      solanaWeb3.SystemProgram.transfer({
+        fromPubkey: provider.publicKey,
+        toPubkey: new solanaWeb3.PublicKey(recipientAddress),
+        lamports: betAmount * solanaWeb3.LAMPORTS_PER_SOL
+      })
+    );
+    transaction.feePayer = provider.publicKey;
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+
+    try {
+      const signed = await provider.signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signed.serialize());
+      await connection.confirmTransaction(signature);
+
+      if (flip === choice) {
+        document.getElementById("result").innerHTML = `<div class='win'>🎉 YOU WON!<br>Tx ID:<br>${signature}<br>Manual payout: 0.2 SOL</div>`;
+        document.getElementById("winSound").play();
+        confetti({ particleCount: 200, spread: 90, origin: { y: 0.6 } });
+      } else {
+        document.getElementById("result").innerHTML = `<div class='lose'>❌ You lost. It was ${flip}</div>`;
+      }
+    } catch {
+      document.getElementById("status").innerText = "Transaction cancelled or failed.";
+    }
+  }, 1800);
+}
+
+// AI Assistant
+document.getElementById("aiHeader").onclick = () => {
+  const body = document.getElementById("aiBody");
+  body.style.display = body.style.display === "none" ? "block" : "none";
+};
+
+const aiResponses = {
+  "how do i bet": "Click Heads or Tails to place your 0.1 SOL bet, or tap the coin for free flips!",
+  "what is heads or tails": "Heads or Tails is a coin flip. Pick one and see if you win!",
+  "how do i connect phantom": "Click Connect Phantom and approve the connection in your Phantom wallet.",
+  "default": "Sorry, I can only answer basic game questions."
+};
+
+function sendMessage() {
+  const input = document.getElementById("aiInput").value.toLowerCase();
+  const convo = document.getElementById("aiConversation");
+  if (!input) return;
+
+  const userMsg = `<div style="text-align:right;margin:2px;">You: ${input}</div>`;
+  convo.innerHTML += userMsg;
+
+  let reply = aiResponses[input] || aiResponses["default"];
+  const botMsg = `<div style="text-align:left;margin:2px;">AI: ${reply}</div>`;
+  convo.innerHTML += botMsg;
+
+  convo.scrollTop = convo.scrollHeight;
+  document.getElementById("aiInput").value = "";
+}
+</script>
+</body>
+</html>
